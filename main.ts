@@ -1,53 +1,33 @@
-const TARGET_API = "https://oiapi.net/api/BigModel";
-const corsHeaders = {
+const UPSTREAM = "https://oiapi.net/api/BigModel";
+const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
-Deno.serve(async (req: Request) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: CORS });
   }
-
-  const controller = new AbortController();
-  const timeoutTimer = setTimeout(() => controller.abort(), 18000);
-
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({error:"仅支持POST"}), {status:400, headers:CORS});
+  }
   try {
-    let body: string | null = null;
-    // GET/HEAD 丢弃body，强制改用POST转发
-    let forwardMethod = req.method;
-    if (forwardMethod === "GET" || forwardMethod === "HEAD") {
-      forwardMethod = "POST";
-    } else {
-      body = await req.text();
-    }
-
-    const forwardHeaders = new Headers(req.headers);
-    forwardHeaders.set("Accept-Encoding", "identity");
-
-    const forwardReq = new Request(TARGET_API, {
-      method: forwardMethod,
-      headers: forwardHeaders,
-      body,
-      signal: controller.signal
+    const body = await req.text();
+    const upstreamRes = await fetch(UPSTREAM, {
+      method: "POST",
+      headers: {
+        "Content-Type":"application/json",
+        "Accept-Encoding":"identity"
+      },
+      body
     });
-
-    const res = await fetch(forwardReq);
-    clearTimeout(timeoutTimer);
-
-    const newHeaders = new Headers(res.headers);
-    newHeaders.delete("Content-Encoding");
-    newHeaders.delete("Content-Length");
-    Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
-
-    return new Response(res.body, { status: res.status, headers: newHeaders });
-  } catch (err) {
-    clearTimeout(timeoutTimer);
-    const msg = err.name === "AbortError" ? "请求超时" : String(err);
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 504,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
+    const respHeaders = new Headers(upstreamRes.headers);
+    respHeaders.delete("Content-Encoding");
+    respHeaders.delete("Content-Length");
+    Object.entries(CORS).forEach(([k,v])=>respHeaders.set(k,v));
+    return new Response(upstreamRes.body, { status: upstreamRes.status, headers: respHeaders });
+  } catch(err){
+    return new Response(JSON.stringify({error:String(err)}), {status:500, headers:CORS});
   }
 });
