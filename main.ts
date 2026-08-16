@@ -14,12 +14,20 @@ Deno.serve(async (req: Request) => {
   const timeoutTimer = setTimeout(() => controller.abort(), 18000);
 
   try {
-    const body = await req.text();
+    let body: string | null = null;
+    // GET/HEAD 丢弃body，强制改用POST转发
+    let forwardMethod = req.method;
+    if (forwardMethod === "GET" || forwardMethod === "HEAD") {
+      forwardMethod = "POST";
+    } else {
+      body = await req.text();
+    }
+
     const forwardHeaders = new Headers(req.headers);
     forwardHeaders.set("Accept-Encoding", "identity");
 
     const forwardReq = new Request(TARGET_API, {
-      method: req.method,
+      method: forwardMethod,
       headers: forwardHeaders,
       body,
       signal: controller.signal
