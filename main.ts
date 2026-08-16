@@ -20,9 +20,13 @@ Deno.serve(async (req: Request) => {
       targetUrl.searchParams.set(key, val);
     });
 
+    // 复制请求头，强制不接受压缩，从源头避免问题
+    const forwardHeaders = new Headers(req.headers);
+    forwardHeaders.set("Accept-Encoding", "identity");
+
     const forwardReq = new Request(targetUrl.toString(), {
       method: req.method,
-      headers: req.headers,
+      headers: forwardHeaders,
       body: req.body,
       signal: controller.signal
     });
@@ -31,7 +35,12 @@ Deno.serve(async (req: Request) => {
     clearTimeout(timeoutTimer);
 
     const newHeaders = new Headers(res.headers);
+    // 关键修复：删除压缩相关头
+    newHeaders.delete("Content-Encoding");
+    newHeaders.delete("Content-Length");
+    // 写入CORS头
     Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
+
     return new Response(res.body, { status: res.status, headers: newHeaders });
   } catch (err) {
     clearTimeout(timeoutTimer);
