@@ -18,35 +18,30 @@ Deno.serve(async (req: Request) => {
   try {
     const rawText = await req.text();
     const payload = JSON.parse(rawText);
-    const sendBody = JSON.stringify(payload);
+
+    // 核心改动：JSON → urlencoded表单
+    const formData = new URLSearchParams();
+    formData.append("prompt", payload.prompt);
 
     const upstreamRes = await fetch(UPSTREAM, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Accept-Encoding": "identity" // 强制上游不要压缩
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept-Encoding": "identity"
       },
-      body: sendBody
+      body: formData
     });
 
-    // 关键：彻底删除压缩相关头部，杜绝解码失败
-    const outHeaders = new Headers(upstreamRes.headers);
-    outHeaders.delete("Content-Encoding");
-    outHeaders.delete("Content-Length");
-    outHeaders.delete("Transfer-Encoding");
-
-    // 注入CORS
+    const respText = await upstreamRes.text();
+    const outHeaders = new Headers();
     for (const [k, v] of Object.entries(CORS_HEADERS)) {
       outHeaders.set(k, v);
     }
-
-    // 先读取完整响应文本，不再流式转发，彻底规避解码异常
-    const respText = await upstreamRes.text();
+    outHeaders.set("Content-Type", "application/json");
     return new Response(respText, {
       status: upstreamRes.status,
       headers: outHeaders
     });
-
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500,
