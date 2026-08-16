@@ -17,7 +17,7 @@ Deno.serve(async (req: Request) => {
   });
   try {
     const upstreamRes = await fetch(targetUrl.toString(), {
-      method:"GET"
+      method:"POST"
     });
     const respText = await upstreamRes.text();
     const outHeaders = new Headers();
