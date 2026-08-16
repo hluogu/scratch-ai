@@ -1,7 +1,7 @@
 const UPSTREAM = "https://oiapi.net/api/BigModel";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Methods": "POST",
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
