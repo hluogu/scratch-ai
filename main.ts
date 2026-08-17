@@ -1,33 +1,62 @@
 const UPSTREAM = "https://oiapi.net/api/BigModel";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
 Deno.serve(async (req: Request) => {
+  // 跨域预检
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
   }
-  const url = new URL(req.url);
+
+  const clientUrl = new URL(req.url);
   const targetUrl = new URL(UPSTREAM);
-  // 把前端所有查询参数原样复制转发给上游
-  url.searchParams.forEach((v,k)=>{
-    targetUrl.searchParams.set(k,v);
-  });
+
+  // 复制URL查询参数
+  for (const [k, v] of clientUrl.searchParams) {
+    targetUrl.searchParams.set(k, v);
+  }
+
+  let forwardBody: ReadableStream | null = null;
+  let forwardHeaders = new Headers(req.headers);
+
+  // ===== 关键逻辑：统一把请求转换成POST发向上游，解决超长问题 =====
+  if (req.method === "GET") {
+    // GET 请求：把所有参数打包成JSON body，转为POST向上游发送
+    const payload: Record<string, string> = {};
+    for (const [k, v] of clientUrl.searchParams) {
+      payload[k] = v;
+    }
+    forwardBody = JSON.stringify(payload);
+    forwardHeaders.set("Content-Type", "application/json");
+  } else {
+    // POST 请求：直接透传body
+    forwardBody = req.body;
+  }
+
   try {
     const upstreamRes = await fetch(targetUrl.toString(), {
-      method:"POST"
+      method: "POST", // 固定向上游发送POST，适配oiapi接口规范
+      headers: forwardHeaders,
+      body: forwardBody
     });
-    const respText = await upstreamRes.text();
-    const outHeaders = new Headers();
-    Object.entries(CORS_HEADERS).forEach(([k,v])=>outHeaders.set(k,v));
-    outHeaders.set("Content-Type","application/json");
-    return new Response(respText, {status:upstreamRes.status, headers:outHeaders});
-  } catch(err){
-    return new Response(JSON.stringify({error:String(err)}), {
-      status:500,
-      headers:{...CORS_HEADERS,"Content-Type":"application/json"}
+
+    const respHeaders = new Headers(upstreamRes.headers);
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => {
+      respHeaders.set(k, v);
     });
+
+    return new Response(upstreamRes.body, {
+      status: upstreamRes.status,
+      headers: respHeaders
+    });
+
+  } catch (err) {
+    return Response.json(
+      { error: String(err) },
+      { status: 500, headers: CORS_HEADERS }
+    );
   }
 });
