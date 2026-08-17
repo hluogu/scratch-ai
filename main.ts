@@ -9,33 +9,50 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
   }
-  const url = new URL(req.url);
-  const targetUrl = new URL(UPSTREAM);
 
-  let payload: Record<string, string> = {};
-  // GET模式：读取url参数，放入JSON body（不再依靠URL向上游传数据）
-  if(req.method === "GET"){
-    url.searchParams.forEach((v,k)=>payload[k]=v);
-  }else{
-    // POST模式：读取请求body
-    payload = await req.json().catch(()=> ({}));
+  const url = new URL(req.url);
+  let payload: Record<string, unknown> = {};
+
+  if (req.method === "GET") {
+    url.searchParams.forEach((val, key) => {
+      payload[key] = val;
+    });
+  } else {
+    try {
+      payload = await req.json();
+    } catch {
+      payload = {};
+    }
   }
 
   try {
-    const upstreamRes = await fetch(targetUrl.toString(), {
+    const upstreamRes = await fetch(UPSTREAM, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     });
+
     const respHeaders = new Headers(upstreamRes.headers);
-    Object.entries(CORS_HEADERS).forEach(([k,v])=>respHeaders.set(k,v));
+    // =========核心修复=========
+    // 删除压缩相关头，避免浏览器强制解压导致失败
+    respHeaders.delete("Content-Encoding");
+    respHeaders.delete("Content-Length");
+    respHeaders.delete("Transfer-Encoding");
+    // =========================
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => {
+      respHeaders.set(k, v);
+    });
+
     return new Response(upstreamRes.body, {
       status: upstreamRes.status,
       headers: respHeaders
     });
-  } catch(err){
-    return Response.json({error:String(err)}, {status:500, headers:CORS_HEADERS});
+  } catch (err) {
+    return Response.json(
+      { error: String(err) },
+      { status: 500, headers: CORS_HEADERS }
+    );
   }
 });
