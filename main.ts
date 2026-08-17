@@ -6,57 +6,36 @@ const CORS_HEADERS = {
 };
 
 Deno.serve(async (req: Request) => {
-  // 跨域预检
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
   }
-
-  const clientUrl = new URL(req.url);
+  const url = new URL(req.url);
   const targetUrl = new URL(UPSTREAM);
 
-  // 复制URL查询参数
-  for (const [k, v] of clientUrl.searchParams) {
-    targetUrl.searchParams.set(k, v);
-  }
-
-  let forwardBody: ReadableStream | null = null;
-  let forwardHeaders = new Headers(req.headers);
-
-  // ===== 关键逻辑：统一把请求转换成POST发向上游，解决超长问题 =====
-  if (req.method === "GET") {
-    // GET 请求：把所有参数打包成JSON body，转为POST向上游发送
-    const payload: Record<string, string> = {};
-    for (const [k, v] of clientUrl.searchParams) {
-      payload[k] = v;
-    }
-    forwardBody = JSON.stringify(payload);
-    forwardHeaders.set("Content-Type", "application/json");
-  } else {
-    // POST 请求：直接透传body
-    forwardBody = req.body;
+  let payload: Record<string, string> = {};
+  // GET模式：读取url参数，放入JSON body（不再依靠URL向上游传数据）
+  if(req.method === "GET"){
+    url.searchParams.forEach((v,k)=>payload[k]=v);
+  }else{
+    // POST模式：读取请求body
+    payload = await req.json().catch(()=> ({}));
   }
 
   try {
     const upstreamRes = await fetch(targetUrl.toString(), {
-      method: "POST", // 固定向上游发送POST，适配oiapi接口规范
-      headers: forwardHeaders,
-      body: forwardBody
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
     });
-
     const respHeaders = new Headers(upstreamRes.headers);
-    Object.entries(CORS_HEADERS).forEach(([k, v]) => {
-      respHeaders.set(k, v);
-    });
-
+    Object.entries(CORS_HEADERS).forEach(([k,v])=>respHeaders.set(k,v));
     return new Response(upstreamRes.body, {
       status: upstreamRes.status,
       headers: respHeaders
     });
-
-  } catch (err) {
-    return Response.json(
-      { error: String(err) },
-      { status: 500, headers: CORS_HEADERS }
-    );
+  } catch(err){
+    return Response.json({error:String(err)}, {status:500, headers:CORS_HEADERS});
   }
 });
